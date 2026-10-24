@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: pip install -e ".[dev]" dbt-duckdb
+      - run: ruff check src tests examples
+      - run: pytest -q
+      - name: Evidence-only triage on the example incident
+        run: |
+          python examples/setup_incident.py /tmp/shop-incident
+          dq-triage --project /tmp/shop-incident --db duckdb:////tmp/shop-incident/shop.duckdb --no-llm || test $? -eq 1

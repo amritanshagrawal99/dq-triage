@@ -1,0 +1,17 @@
+version: 2
+exposures:
+  - name: revenue_dashboard
+    type: dashboard
+    owner:
+      name: Analytics
+      email: analytics@example.com
+    depends_on:
+      - ref('customers')
+      - ref('orders')
+  - name: crm_sync
+    type: application
+    owner:
+      name: CRM team
+      email: crm@example.com
+    depends_on:
+      - ref('customer_contacts')

@@ -1,0 +1,6 @@
+id,order_id,method,amount_paise
+100,10,upi,125000
+101,11,card,49900
+102,12,upi,300000
+103,13,netbanking,75000
+104,12,card,50000
