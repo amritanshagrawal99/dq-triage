@@ -10,6 +10,8 @@ def render(ev: Evidence, inv: Investigation | None) -> str:
     lines = [f"# Data-quality incident: `{t.name}`", ""]
     lines += [f"- **Test:** `{t.test_type}` on `{ev.model_name}`" + (f".`{t.column}`" if t.column else "") +
               f" ({t.status}, {t.failures if t.failures is not None else '?'} failing rows)"]
+    if ev.related:
+        lines.append("- **Also failing (same lineage):** " + ", ".join(f"`{r.name}`" for r in ev.related))
     if ev.exposures:
         lines.append("- **Exposures downstream:** " + ", ".join(f"`{e['name']}` ({e['type']}, {e['owner']})" for e in ev.exposures))
     lines.append("")

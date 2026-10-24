@@ -17,9 +17,41 @@ class Evidence:
     recent_commits: str
     exposures: list[dict]
     downstream: list[str] = field(default_factory=list)
+    related: list[FailedTest] = field(default_factory=list)  # other failures grouped into this incident
 
 
-def gather(project: Project, db: Database | None, test: FailedTest, sample_rows: int = 20) -> Evidence:
+def group_failures(project: Project, tests: list[FailedTest]) -> list[list[FailedTest]]:
+    """Group failures whose models sit on one lineage path (one is upstream of, or equal to, the other).
+
+    A broken upstream model usually fails tests on itself and on several descendants; those are one incident.
+    Each group is ordered most-upstream first, so its first test is where the investigation starts.
+    """
+    parent = list(range(len(tests)))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    ancestors = {t.model: set(project.ancestors(t.model)) for t in tests if t.model}
+    for i, a in enumerate(tests):
+        for j in range(i + 1, len(tests)):
+            b = tests[j]
+            if a.model and b.model and (a.model == b.model or a.model in ancestors[b.model] or b.model in ancestors[a.model]):
+                parent[find(i)] = find(j)
+    groups: dict[int, list[FailedTest]] = {}
+    for i, t in enumerate(tests):
+        groups.setdefault(find(i), []).append(t)
+
+    def depth(t: FailedTest) -> int:
+        return len(ancestors.get(t.model, ())) if t.model else 0
+
+    return sorted((sorted(g, key=lambda t: (depth(t), t.name)) for g in groups.values()), key=lambda g: g[0].name)
+
+
+def gather(project: Project, db: Database | None, test: FailedTest, sample_rows: int = 20,
+           related: list[FailedTest] | None = None) -> Evidence:
     model = test.model
     lineage = [model, *project.ancestors(model)] if model else []
     failing = None
@@ -48,6 +80,7 @@ def gather(project: Project, db: Database | None, test: FailedTest, sample_rows:
         recent_commits=project.git_log(files, n=10) if files else "(no files)",
         exposures=project.exposures_downstream(model) if model else [],
         downstream=[project.name(d) for d in project.descendants(model)] if model else [],
+        related=list(related or []),
     )
 
 
@@ -65,4 +98,8 @@ def to_prompt(ev: Evidence) -> str:
         "", "Downstream models: " + (", ".join(ev.downstream) or "none"),
         "Downstream exposures: " + (", ".join(f"{e['name']} ({e['type']}, owner {e['owner']})" for e in ev.exposures) or "none"),
     ]
+    if ev.related:
+        parts += ["", "Other failed tests on the same lineage (likely the same root cause; explain them too):"]
+        parts += [f"- {r.name} ({r.test_type} on {r.model.split('.')[-1] if r.model else '?'}, failures={r.failures})"
+                  for r in ev.related]
     return "\n".join(parts)
