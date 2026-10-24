@@ -53,7 +53,14 @@ def group_failures(project: Project, tests: list[FailedTest]) -> list[list[Faile
 def gather(project: Project, db: Database | None, test: FailedTest, sample_rows: int = 20,
            related: list[FailedTest] | None = None) -> Evidence:
     model = test.model
-    lineage = [model, *project.ancestors(model)] if model else []
+    # Every model the test reads (a relationships test also reads its `to` model), each with its ancestors.
+    roots = [model] if model else []
+    roots += [d for d in test.depends_on if d != model and d in project.nodes and not d.startswith("test.")]
+    lineage: list[str] = []
+    for uid in roots:
+        for u in (uid, *project.ancestors(uid)):
+            if u not in lineage:
+                lineage.append(u)
     failing = None
     if db is not None and test.compiled_sql:
         try:
@@ -70,7 +77,8 @@ def gather(project: Project, db: Database | None, test: FailedTest, sample_rows:
                 counts[project.name(uid)] = db.query(f"select count(*) from {rel}")[1][0][0]
             except Exception as e:  # noqa: BLE001
                 counts[project.name(uid)] = f"error: {str(e).splitlines()[0][:120]}"
-    files = [p for p in (project.file_path(u) for u in lineage) if p]
+    # The test's own definition file too: a test edit is a cause in its own right.
+    files = [p for p in dict.fromkeys(project.file_path(u) for u in [test.unique_id, *lineage]) if p]
     return Evidence(
         test=test,
         model_name=project.name(model) if model else None,

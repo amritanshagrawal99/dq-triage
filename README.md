@@ -55,6 +55,32 @@ The evidence pack alone already lines up the clues: the failing key, `orders` at
 commit. See [docs/example-evidence.md](docs/example-evidence.md). The agent's job is to confirm the mechanism with queries
 and the diff, then write the fix.
 
+## Evals
+
+[`dq_triage/evals.py`](src/dq_triage/evals.py) defines five seeded incidents with known answers. Each starts from the clean
+example project, where all 18 checks pass, and lands one change as a commit:
+
+| Incident | Change | Failing test | Expected cause | First bad model |
+|---|---|---|---|---|
+| `fanout` | `GROUP BY` removed from a payments CTE | `unique(orders.order_id)` | code change | `orders` |
+| `resent_payments` | provider re-sent a payment row | `unique(stg_payments.payment_id)` | data change | `stg_payments` / `raw_payments` |
+| `new_status` | source emits a new status `shipped` | `accepted_values(stg_orders.status)` | data change | `stg_orders` / `raw_orders` |
+| `filtered_customers` | filter added to `stg_customers` | `relationships(orders.customer_id)` | code change | `stg_customers` |
+| `test_typo` | a test edit dropped an accepted value | `accepted_values(...)` | test definition | `stg_orders` |
+
+```bash
+python evals/run.py --build-only        # reproduce all five; no API key needed (this also runs in CI)
+python evals/run.py --effort medium     # run the agent and score: cause type, first bad model, culprit commit
+```
+
+The scorer counts a report as passing when the cause type and first bad model are right and, for code and test-definition
+changes, it names the culprit commit. Results are written to `evals/results/` with token usage per incident, so a model or
+effort setting can be compared on cost per correct diagnosis.
+
+The eval has already paid for itself. The `filtered_customers` and `test_typo` incidents showed that the evidence pack missed
+the culprit commit, because it only followed the tested model's own lineage. A `relationships` test also depends on its target
+model, and a test-definition edit lives in the test's YAML file. Both are now included.
+
 ## Tools the agent has
 
 | Tool | What it does |

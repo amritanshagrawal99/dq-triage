@@ -10,3 +10,4 @@ examples/shop/logs/
 examples/shop/*.duckdb*
 examples/shop/.user.yml
 incidents/
+evals/work/
