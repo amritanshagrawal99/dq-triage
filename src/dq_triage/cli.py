@@ -8,7 +8,7 @@ from pathlib import Path
 from . import __version__
 from .agent import MODEL, investigate
 from .db import Database
-from .evidence import gather
+from .evidence import gather, group_failures
 from .project import Project
 from .report import render
 
@@ -23,6 +23,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--model", default=MODEL)
     p.add_argument("--effort", default="high", choices=["low", "medium", "high", "xhigh", "max"])
     p.add_argument("--max-steps", type=int, default=20)
+    p.add_argument("--no-group", action="store_true", help="one incident per failed test instead of per shared lineage")
     p.add_argument("-o", "--output-dir", help="write one incident_<test>.md per failure here (default: stdout)")
     p.add_argument("--version", action="version", version=f"dq-triage {__version__}")
     a = p.parse_args(argv)
@@ -34,8 +35,9 @@ def main(argv: list[str] | None = None) -> int:
         print("No failed tests in run_results.json.")
         return 0
 
-    for test in failures:
-        ev = gather(project, db, test)
+    groups = [[t] for t in failures] if a.no_group else group_failures(project, failures)
+    for test, *related in groups:
+        ev = gather(project, db, test, related=related)
         inv = None if a.no_llm else investigate(project, db, ev, model=a.model, max_steps=a.max_steps, effort=a.effort)
         text = render(ev, inv)
         if a.output_dir:

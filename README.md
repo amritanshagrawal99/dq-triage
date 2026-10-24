@@ -30,6 +30,9 @@ things worse and if every claim it makes can be checked.
 - **Structured, evidence-cited output.** The agent finishes by calling a strict `submit_report` tool: root cause, cause type
   (code / data / test definition), confidence, first bad model, culprit commit, evidence claims with their sources, blast
   radius, fix, and verification SQL.
+- **One incident per root cause.** Failures whose models sit on one lineage path (a broken staging model that fails
+  tests on itself and on three marts) are grouped. The investigation starts at the most-upstream failure and is asked to
+  explain the rest. `--no-group` turns this off.
 - **Bounded and auditable.** It has a step limit, a log of every tool call, and token usage in the report.
 - **API usage:** `claude-opus-5-5` at `effort: high` with prompt caching on the stable system prompt and tools, plus
   `fallbacks: "default"` so a safety-classifier decline is retried server-side instead of failing the run. Refusals end the
@@ -81,7 +84,6 @@ pytest
 ## Limitations and next steps
 
 - DuckDB and SQLite connections today; Snowflake and Databricks connectors (read-only roles) are next.
-- One investigation per failed test; grouping related failures into one incident is on the roadmap.
 - Triage advice is a starting point for a human, not an automatic fix. The tool never applies changes.
 
 ## License
