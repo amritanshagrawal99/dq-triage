@@ -23,3 +23,21 @@ jobs:
         run: |
           python examples/setup_incident.py /tmp/shop-incident
           dq-triage --project /tmp/shop-incident --db duckdb:////tmp/shop-incident/shop.duckdb --no-llm || test $? -eq 1
+
+  action:
+    # Run the composite action end to end on the example incident (evidence-only: no API key in CI).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e . dbt-duckdb && python examples/setup_incident.py "$RUNNER_TEMP/shop"
+      - id: triage
+        uses: ./
+        with:
+          project-dir: ${{ runner.temp }}/shop
+          db: duckdb:///${{ runner.temp }}/shop/shop.duckdb
+          comment: "false"
+      - name: Exactly one incident note
+        run: test "${{ steps.triage.outputs.incidents }}" = "1" && grep -q "unique_orders_order_id" dq-triage.md
