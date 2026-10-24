@@ -55,6 +55,22 @@ The evidence pack alone already lines up the clues: the failing key, `orders` at
 commit. See [docs/example-evidence.md](docs/example-evidence.md). The agent's job is to confirm the mechanism with queries
 and the diff, then write the fix.
 
+## In CI
+
+```yaml
+# after `dbt build` in your workflow
+- if: failure()
+  uses: amritanshagrawal99/dq-triage@main
+  with:
+    project-dir: .
+    db: duckdb:///warehouse.duckdb                          # read-only connection for evidence + agent queries
+    anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}     # omit to post the evidence pack only
+    slack-webhook-url: ${{ secrets.DATA_ONCALL_SLACK_WEBHOOK }}  # optional
+```
+
+The action writes one incident note per root cause to the job summary, keeps a single PR comment updated, and optionally
+posts a short Slack alert linking to the run. The repo's own CI runs it end to end on the example incident.
+
 ## Evals
 
 [`dq_triage/evals.py`](src/dq_triage/evals.py) defines five seeded incidents with known answers. Each starts from the clean

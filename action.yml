@@ -1,0 +1,86 @@
+name: dq-triage
+description: Root-cause failed dbt tests with a read-only Claude agent and post the incident note to the job summary, the PR, and optionally Slack.
+branding:
+  icon: alert-triangle
+  color: red
+inputs:
+  project-dir:
+    description: dbt project directory containing target/manifest.json and target/run_results.json
+    required: false
+    default: "."
+  db:
+    description: Read-only connection URL for the evidence pack and agent queries (duckdb:///path or sqlite:///path)
+    required: false
+    default: ""
+  anthropic-api-key:
+    description: Anthropic API key. Leave empty to post the evidence pack only (no agent).
+    required: false
+    default: ""
+  effort:
+    description: Claude effort level (low | medium | high | xhigh | max)
+    required: false
+    default: "high"
+  comment:
+    description: Post (or update) a PR comment with the incident notes
+    required: false
+    default: "true"
+  slack-webhook-url:
+    description: Optional Slack incoming-webhook URL; a short alert with a link to the run is posted there
+    required: false
+    default: ""
+outputs:
+  incidents:
+    description: Number of incident notes written
+    value: ${{ steps.triage.outputs.incidents }}
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: pip install --quiet "${{ github.action_path }}[duckdb]"
+    - id: triage
+      shell: bash
+      env:
+        PROJECT_DIR: ${{ inputs.project-dir }}
+        DB_URL: ${{ inputs.db }}
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+        EFFORT: ${{ inputs.effort }}
+      run: |
+        args=(--project "$PROJECT_DIR" -o dq-incidents --effort "$EFFORT")
+        if [ -n "$DB_URL" ]; then args+=(--db "$DB_URL"); fi
+        if [ -z "$ANTHROPIC_API_KEY" ]; then args+=(--no-llm); fi
+        dq-triage "${args[@]}" || true   # exits 1 when there are failures, like a test runner
+        n=$(ls dq-incidents/*.md 2>/dev/null | wc -l | tr -d ' ')
+        echo "incidents=$n" >> "$GITHUB_OUTPUT"
+        if [ "$n" -gt 0 ]; then
+          { echo "<!-- dq-triage -->"; for f in dq-incidents/*.md; do cat "$f"; echo; echo "---"; done; } > dq-triage.md
+          cat dq-triage.md >> "$GITHUB_STEP_SUMMARY"
+        fi
+    - if: steps.triage.outputs.incidents != '0' && inputs.comment == 'true' && github.event_name == 'pull_request'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        PR: ${{ github.event.pull_request.number }}
+      run: |
+        id=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" --paginate \
+              --jq '.[] | select(.body | startswith("<!-- dq-triage -->")) | .id' | head -n1)
+        if [ -n "$id" ]; then
+          gh api -X PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${id}" -F body=@dq-triage.md > /dev/null
+        else
+          gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body-file dq-triage.md
+        fi
+    - if: steps.triage.outputs.incidents != '0' && inputs.slack-webhook-url != ''
+      shell: bash
+      env:
+        SLACK_WEBHOOK_URL: ${{ inputs.slack-webhook-url }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        N: ${{ steps.triage.outputs.incidents }}
+      run: |
+        python - <<'PY'
+        import json, os, pathlib, urllib.request
+        titles = [p.read_text(encoding="utf-8").splitlines()[0].lstrip("# ") for p in sorted(pathlib.Path("dq-incidents").glob("*.md"))]
+        text = f":rotating_light: {os.environ['N']} data-quality incident(s) in {os.environ.get('GITHUB_REPOSITORY', '')}\n"
+        text += "\n".join(f"• {t}" for t in titles) + f"\n<{os.environ['RUN_URL']}|Incident notes>"
+        req = urllib.request.Request(os.environ["SLACK_WEBHOOK_URL"], data=json.dumps({"text": text}).encode(),
+                                     headers={"Content-Type": "application/json"})
+        urllib.request.urlopen(req, timeout=15)
+        PY
