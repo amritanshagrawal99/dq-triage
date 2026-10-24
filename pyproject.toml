@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dq-triage"
-version = "0.1.0"
+version = "0.2.0"
 description = "Root-cause failed dbt tests with a read-only Claude agent: evidence pack, investigation, incident note."
 readme = "README.md"
 license = { text = "MIT" }
